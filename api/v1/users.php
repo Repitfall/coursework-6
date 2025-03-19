@@ -102,12 +102,14 @@ function userSelect($id) {
 switch ($method) {
     case 'GET':
 
+        // Получение списка пользователей
+        // Роль: модератор
         if ($request[4] == '') {
             if (empty($_GET['token'])) {
                 http_response_code(401);
                 $response = ['error' => 'Отсутствует токен.'];
             }else{
-                if (jwt_decode($_GET['token'])->role < 1) {
+                if (jwt_decode($_GET['token'])->role < ROLE_MODERATOR) {
                     http_response_code(401);
                     $response = ['error' => 'Недостаточно прав.'];
                 }else{
@@ -118,13 +120,15 @@ switch ($method) {
             }
             break;
 
+        // Получение конкретного пользователя
+        // Роль: модератор или владелец аккаунта
         }elseif (ctype_digit($request[4])) {
             if (empty($_GET['token'])) {
                 http_response_code(401);
                 $response = ['error' => 'Отсутствует токен.'];
             }else{
                 $token = jwt_decode($_GET['token']);
-                if ($token->role < 1 && $token->id != $request[4]) {
+                if ($token->role < ROLE_MODERATOR && $token->id != $request[4]) {
                     http_response_code(401);
                     $response = ['error' => 'Недостаточно прав.'];
                 }else{
@@ -139,16 +143,18 @@ switch ($method) {
 
     case 'POST':
 
-        error_reporting(E_ALL);
-        ini_set('display_errors', 1);
-
         switch ($request[4]) {
+            
+            // Регистрация пользователя
             case '':
                 $response = userCreate($_POST['login'], $_POST['password'], $_POST['nickname']);
                 break;
+
+            // Авторизация пользователя
             case 'login':
                 $response = userLogin($_POST['login'], $_POST['password']);
                 break;
+            
             default:
                 http_response_code(404);
                 $response = ['error' => 'Действие не найдено.'];

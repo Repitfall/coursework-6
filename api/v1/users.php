@@ -1,5 +1,5 @@
 <?php
-function userCreate($login, $password, $nickname) {
+function user_create($login, $password, $nickname) {
     global $conn;
     
     if (empty($login) || empty($password) || empty($nickname)) {
@@ -17,27 +17,18 @@ function userCreate($login, $password, $nickname) {
     }
     $inserted_id = mysqli_insert_id($conn);
 
-    $query = "SELECT * FROM users WHERE id = ?";
+    $query = "SELECT id, login, role FROM users WHERE id = ?";
     $query = mysqli_prepare($conn, $query);
     mysqli_stmt_bind_param($query, 'i', $inserted_id);
     mysqli_stmt_execute($query);
     $result = mysqli_stmt_get_result($query);
     $result = mysqli_fetch_assoc($result);
     
-    $payload = [
-        'id' => $result['id'],
-        'login' => $result['login'],
-        'password' => $result['password'],
-        'role' => $result['role'],
-        'exp' => time() + 3600
-    ];
-
-    $jwt = jwt_encode($payload);
-
-    return ['token' => $jwt];
+    jwt_output($result['id'], $result['login'], $result['role']);
+    die();
 }
 
-function userLogin($login, $password) {
+function user_login($login, $password) {
     global $conn;
     
     if (empty($login) || empty($password)) {
@@ -45,7 +36,7 @@ function userLogin($login, $password) {
     }
 
     $password = hash('sha256', $password);
-    $query = "SELECT * FROM users WHERE login = ? AND password = ?";
+    $query = "SELECT id, login, role FROM users WHERE login = ? AND password = ?";
     $query = mysqli_prepare($conn, $query);
     mysqli_stmt_bind_param($query, 'ss', $login, $password);
     mysqli_stmt_execute($query);
@@ -56,27 +47,18 @@ function userLogin($login, $password) {
         return ['error' => 'Неправильный логин или пароль.'];
     }
 
-    $payload = [
-        'id' => $result['id'],
-        'login' => $result['login'],
-        'password' => $result['password'],
-        'role' => $result['role'],
-        'exp' => time() + 3600
-    ];
-
-    $jwt = jwt_encode($payload);
-
-    return ['token' => $jwt];
+    jwt_output($result['id'], $result['login'], $result['role']);
+    die();
 }
 
-function usersList($limit, $offset) {
+function users_list($limit, $offset) {
     global $conn;
     
     if ($limit < 1) $limit = 1;
     if ($limit > 100) $limit = 100;
     if ($offset < 0) $offset = 0;
 
-    $query = "SELECT nickname, date_reg FROM users LIMIT ? OFFSET ?";
+    $query = "SELECT id, nickname, date_reg FROM users LIMIT ? OFFSET ?";
     $query = mysqli_prepare($conn, $query);
     mysqli_stmt_bind_param($query, 'ii', $limit, $offset);
     mysqli_stmt_execute($query);
@@ -84,10 +66,11 @@ function usersList($limit, $offset) {
     while ($result_row = mysqli_fetch_assoc($result)) {
         $response[] = $result_row;
     }
+    if ($response == null) $response = [];
     return $response;
 }
 
-function userSelect($id) {
+function user_select($id) {
     global $conn;
     
     $query = "SELECT nickname, date_reg FROM users WHERE id = ?";
@@ -95,7 +78,12 @@ function userSelect($id) {
     mysqli_stmt_bind_param($query, 'i', $id);
     mysqli_stmt_execute($query);
     $result = mysqli_stmt_get_result($query);
-    $result ? $response = mysqli_fetch_assoc($result) : $response = ['error' => 'Учетная запись не найдена.'];
+    $result = mysqli_fetch_assoc($result);
+    if ($result != null) {
+        $response = $result;
+    }else{
+        $response = ['error' => 'Учетная запись не найдена.'];
+    }
     return $response;
 }
 
@@ -104,39 +92,21 @@ switch ($method) {
 
         // Получение списка пользователей
         // Роль: модератор
-        if ($request[4] == '') {
-            if (empty($_GET['token'])) {
-                http_response_code(401);
-                $response = ['error' => 'Отсутствует токен.'];
+        if (empty($request[4])) {
+            $payload = jwt_input();
+            if ($payload['role'] < ROLE_MODERATOR) {
+                http_response_code(403);
+                $response = ['error' => 'Недостаточно прав.'];
             }else{
-                if (jwt_decode($_GET['token'])->role < ROLE_MODERATOR) {
-                    http_response_code(401);
-                    $response = ['error' => 'Недостаточно прав.'];
-                }else{
-                    empty($_GET['limit']) ? $limit = 10 : $limit = $_GET['limit'];
-                    empty($_GET['offset']) ? $offset = 0 : $offset = $_GET['offset'];
-                    $response = usersList($limit, $offset);
-                }
+                empty($_GET['limit']) ? $limit = 10 : $limit = $_GET['limit'];
+                empty($_GET['offset']) ? $offset = 0 : $offset = $_GET['offset'];
+                $response = users_list($limit, $offset);
             }
             break;
 
         // Получение конкретного пользователя
-        // Роль: модератор или владелец аккаунта
         }elseif (ctype_digit($request[4])) {
-            if (empty($_GET['token'])) {
-                http_response_code(401);
-                $response = ['error' => 'Отсутствует токен.'];
-            }else{
-                $token = jwt_decode($_GET['token']);
-                if ($token->role < ROLE_MODERATOR && $token->id != $request[4]) {
-                    http_response_code(401);
-                    $response = ['error' => 'Недостаточно прав.'];
-                }else{
-                    $response = userSelect($request[4]);
-                }
-            }
-            break;
-
+            $response = user_select($request[4]);
         }
         break;
 
@@ -147,12 +117,12 @@ switch ($method) {
             
             // Регистрация пользователя
             case '':
-                $response = userCreate($_POST['login'], $_POST['password'], $_POST['nickname']);
+                $response = user_create($_POST['login'], $_POST['password'], $_POST['nickname']);
                 break;
 
             // Авторизация пользователя
             case 'login':
-                $response = userLogin($_POST['login'], $_POST['password']);
+                $response = user_login($_POST['login'], $_POST['password']);
                 break;
             
             default:
